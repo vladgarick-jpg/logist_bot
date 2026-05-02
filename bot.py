@@ -9,7 +9,6 @@ import database
 
 # Flask для Render
 from flask import Flask
-import threading
 
 logging.basicConfig(level=logging.INFO)
 
@@ -130,7 +129,7 @@ async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
-# -------------------- FLASK ДЛЯ RENDER --------------------
+# -------------------- FLASK --------------------
 
 app = Flask(__name__)
 
@@ -138,11 +137,16 @@ app = Flask(__name__)
 def home():
     return "OK"
 
-def run_web():
-    app.run(host="0.0.0.0", port=10000)
-
 # -------------------- ЗАПУСК --------------------
 
+async def start_all():
+    loop = asyncio.get_event_loop()
+
+    # Flask запускаем через executor (без конфликтов)
+    loop.run_in_executor(None, lambda: app.run(host="0.0.0.0", port=10000))
+
+    # запускаем бота
+    await main()
+
 if __name__ == "__main__":
-    threading.Thread(target=run_web).start()
-    asyncio.run(main())
+    asyncio.run(start_all())
