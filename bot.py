@@ -1,11 +1,15 @@
 import asyncio
 import logging
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardRemove
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 import config
 import database
+
+# Flask для Render
+from flask import Flask
+import threading
 
 logging.basicConfig(level=logging.INFO)
 
@@ -14,7 +18,8 @@ dp = Dispatcher()
 
 database.init_db()
 
-# Обработчик команды /start
+# -------------------- БОТ --------------------
+
 @dp.message(CommandStart())
 async def start_command(message: Message, state: FSMContext):
     await state.clear()
@@ -23,7 +28,6 @@ async def start_command(message: Message, state: FSMContext):
         reply_markup=ReplyKeyboardRemove()
     )
 
-# Обработчик вопросов от логистов (ЛС)
 @dp.message(F.chat.type == "private")
 async def handle_logist_question(message: Message, state: FSMContext):
     await state.clear()
@@ -31,12 +35,10 @@ async def handle_logist_question(message: Message, state: FSMContext):
     username = message.from_user.username or message.from_user.first_name
     question = message.text if message.text else "🖼 Фото без подписи"
 
-    # Кнопка "Я беру этот вопрос"
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="🛠 Я беру этот вопрос", callback_data="assign")]]
     )
 
-    # Отправляем вопрос в группу
     if message.photo:
         sent_message = await bot.send_photo(
             config.GROUP_CHAT_ID,
@@ -53,14 +55,12 @@ async def handle_logist_question(message: Message, state: FSMContext):
             reply_markup=keyboard
         )
 
-    # ✅ Записываем в БД `message_id` из ГРУППЫ (не из ЛС!)
     database.save_question(user_id, username, question, sent_message.message_id)
     await message.reply("✅ Ваш вопрос отправлен специалистам. Ожидайте ответ!")
 
-# Обработчик кнопки "Я беру этот вопрос"
 @dp.callback_query(F.data == "assign")
 async def assign_specialist(callback: CallbackQuery):
-    message_id = callback.message.message_id  # Берём `message_id` из сообщения в группе
+    message_id = callback.message.message_id
     specialist_id = callback.from_user.id
     specialist_name = callback.from_user.full_name
 
@@ -69,19 +69,23 @@ async def assign_specialist(callback: CallbackQuery):
         await callback.answer("⚠ Ошибка: вопрос не найден.")
         return
 
-    # ✅ Назначаем специалиста
     database.assign_specialist_to_question(message_id, specialist_id, specialist_name)
 
-    # Обновляем сообщение в группе (убираем кнопку)
     await callback.message.edit_reply_markup(reply_markup=None)
-    await callback.message.edit_caption(
-        caption=f"❓ <b>Новый вопрос от @{question_data[1]}</b>\n\n{question_data[2]}\n\n👷‍♂️ <b>Вопрос взял: {specialist_name}</b>",
-        parse_mode="HTML"
-    )
+
+    try:
+        await callback.message.edit_caption(
+            caption=f"❓ <b>Новый вопрос от @{question_data[1]}</b>\n\n{question_data[2]}\n\n👷‍♂️ <b>Вопрос взял: {specialist_name}</b>",
+            parse_mode="HTML"
+        )
+    except:
+        await callback.message.edit_text(
+            f"❓ <b>Новый вопрос от @{question_data[1]}</b>\n\n{question_data[2]}\n\n👷‍♂️ <b>Вопрос взял: {specialist_name}</b>",
+            parse_mode="HTML"
+        )
 
     await callback.answer("✅ Вопрос закреплён за вами!")
 
-# Обработчик ответов от специалистов
 @dp.message(F.chat.id == config.GROUP_CHAT_ID, F.reply_to_message)
 async def handle_specialist_answer(message: Message):
     original_message_id = message.reply_to_message.message_id
@@ -119,24 +123,25 @@ async def handle_specialist_answer(message: Message):
     await message.reply("✅ Ответ отправлен логисту.")
 
 async def main():
+    if not config.TOKEN:
+        raise ValueError("TOKEN не задан!")
+
     database.init_db()
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
-if __name__ == "__main__":
-    asyncio.run(main())
-
-from flask import Flask
-import threading
+# -------------------- FLASK ДЛЯ RENDER --------------------
 
 app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Bot is running"
+    return "OK"
 
 def run_web():
     app.run(host="0.0.0.0", port=10000)
+
+# -------------------- ЗАПУСК --------------------
 
 if __name__ == "__main__":
     threading.Thread(target=run_web).start()
