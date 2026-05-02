@@ -1,8 +1,7 @@
-import asyncio
 import logging
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardRemove
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardRemove, Update
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 import config
@@ -124,9 +123,13 @@ async def handle_specialist_answer(message: Message):
 WEBHOOK_PATH = "/webhook"
 WEBHOOK_URL = "https://logist-bot-7cw6.onrender.com/webhook"
 
+async def handle_root(request):
+    return web.Response(text="OK")
+
 async def handle_webhook(request):
     data = await request.json()
-    await dp.feed_update(bot, data)
+    update = Update(**data)
+    await dp.feed_update(bot, update)
     return web.Response()
 
 async def on_startup(app):
@@ -138,6 +141,8 @@ async def on_shutdown(app):
 
 def main():
     app = web.Application()
+
+    app.router.add_get("/", handle_root)
     app.router.add_post(WEBHOOK_PATH, handle_webhook)
 
     app.on_startup.append(on_startup)
