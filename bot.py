@@ -1,14 +1,12 @@
 import asyncio
 import logging
+from aiohttp import web
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardRemove
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 import config
 import database
-
-# Flask для Render
-from flask import Flask
 
 logging.basicConfig(level=logging.INFO)
 
@@ -121,32 +119,31 @@ async def handle_specialist_answer(message: Message):
     await bot.send_message(user_id, text_answer, parse_mode="HTML")
     await message.reply("✅ Ответ отправлен логисту.")
 
-async def main():
-    if not config.TOKEN:
-        raise ValueError("TOKEN не задан!")
+# -------------------- WEBHOOK --------------------
 
-    database.init_db()
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+WEBHOOK_PATH = "/webhook"
+WEBHOOK_URL = "https://logist-bot-7cw6.onrender.com/webhook"
 
-# -------------------- FLASK --------------------
+async def handle_webhook(request):
+    data = await request.json()
+    await dp.feed_update(bot, data)
+    return web.Response()
 
-app = Flask(__name__)
+async def on_startup(app):
+    await bot.set_webhook(WEBHOOK_URL)
+    print("Webhook установлен:", WEBHOOK_URL)
 
-@app.route("/")
-def home():
-    return "OK"
+async def on_shutdown(app):
+    await bot.delete_webhook()
 
-# -------------------- ЗАПУСК --------------------
+def main():
+    app = web.Application()
+    app.router.add_post(WEBHOOK_PATH, handle_webhook)
 
-async def start_all():
-    loop = asyncio.get_event_loop()
+    app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
 
-    # Flask запускаем через executor (без конфликтов)
-    loop.run_in_executor(None, lambda: app.run(host="0.0.0.0", port=10000))
-
-    # запускаем бота
-    await main()
+    web.run_app(app, host="0.0.0.0", port=10000)
 
 if __name__ == "__main__":
-    asyncio.run(start_all())
+    main()
